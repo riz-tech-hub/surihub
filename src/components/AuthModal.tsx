@@ -20,6 +20,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
   if (!isOpen) return null;
 
+  const getRedirectUrl = () => {
+    if (typeof window !== 'undefined' && window.location.origin) {
+      return window.location.origin;
+    }
+    return 'https://surihub.vercel.app';
+  };
+
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
@@ -27,10 +34,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
     setLoading(true);
 
     if (!isSupabaseConfigured()) {
-      setErrorMsg('Sila kemaskini NEXT_PUBLIC_SUPABASE_URL & ANON_KEY dalam .env.local terlebih dahulu.');
+      setErrorMsg('Sila kemaskini NEXT_PUBLIC_SUPABASE_URL & ANON_KEY dalam .env.local / Vercel Environment Variables.');
       setLoading(false);
       return;
     }
+
+    const redirectUrl = getRedirectUrl();
 
     try {
       if (mode === 'login') {
@@ -48,18 +57,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         const { error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
+          options: {
+            emailRedirectTo: redirectUrl,
+          },
         });
         if (error) throw error;
         setSuccessMsg('Pendaftaran berjaya! Sila semak e-mel anda untuk pengesahan akaun.');
       } else if (mode === 'magic') {
         const { error } = await supabase.auth.signInWithOtp({
           email: email.trim(),
+          options: {
+            emailRedirectTo: redirectUrl,
+          },
         });
         if (error) throw error;
         setSuccessMsg('Pautan log masuk (Magic Link) telah dihantar ke e-mel anda!');
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'Ralat berlaku semasa log masuk.');
+      console.error('Supabase auth error:', err);
+      const msg = err.message || 'Ralat berlaku semasa pengesahan akaun.';
+      if (msg.includes('Invalid path') || msg.includes('redirect')) {
+        setErrorMsg(`Ralat URL Redirect: Sila pastikan ${redirectUrl} telah dimasukkan dalam Supabase Dashboard -> Authentication -> URL Configuration -> Redirect URLs.`);
+      } else {
+        setErrorMsg(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -90,7 +111,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
             <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
             <div>
               <span className="font-bold block">Kunci Supabase Belum Ditetapkan</span>
-              <span>Sila gantikan `YOUR_SUPABASE_URL` dalam fail `.env.local` untuk mengaktifkan pangkalan data Supabase secara penuh.</span>
+              <span>Sila gantikan `YOUR_SUPABASE_URL` dalam `.env.local` atau Environment Variables Vercel.</span>
             </div>
           </div>
         )}
@@ -98,19 +119,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
         {/* Mode selector tabs */}
         <div className="grid grid-cols-3 gap-1 bg-rose-50 p-1 rounded-2xl text-xs font-bold text-center">
           <button
-            onClick={() => setMode('login')}
+            onClick={() => {
+              setMode('login');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
             className={`py-1.5 rounded-xl transition ${mode === 'login' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-600'}`}
           >
             Log Masuk
           </button>
           <button
-            onClick={() => setMode('signup')}
+            onClick={() => {
+              setMode('signup');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
             className={`py-1.5 rounded-xl transition ${mode === 'signup' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-600'}`}
           >
             Daftar
           </button>
           <button
-            onClick={() => setMode('magic')}
+            onClick={() => {
+              setMode('magic');
+              setErrorMsg('');
+              setSuccessMsg('');
+            }}
             className={`py-1.5 rounded-xl transition ${mode === 'magic' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-600'}`}
           >
             Magic Link
@@ -119,12 +152,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
 
         {/* Error / Success Messages */}
         {errorMsg && (
-          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold">
+          <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold leading-relaxed">
             ⚠️ {errorMsg}
           </div>
         )}
         {successMsg && (
-          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold">
+          <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs font-semibold leading-relaxed">
             ✓ {successMsg}
           </div>
         )}
