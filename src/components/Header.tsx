@@ -1,6 +1,6 @@
 'use client';
 
-import { Heart, AlertTriangle, CheckCircle2, Utensils, Download, User as UserIcon, LogOut, RefreshCw } from 'lucide-react';
+import { Heart, AlertTriangle, CheckCircle2, Utensils, Download, User as UserIcon, LogOut, RefreshCw, Smartphone } from 'lucide-react';
 import { formatMalayDate } from '@/utils/helpers';
 import { useAuth } from '@/context/AuthContext';
 import { usePWAUpdate } from '@/context/PWAUpdateContext';
@@ -100,10 +100,11 @@ export const Header: React.FC<HeaderProps> = ({
             {canInstall && (
               <button
                 onClick={onInstallClick}
-                className="flex items-center space-x-1 px-2.5 py-1 bg-white text-rose-600 rounded-full font-bold text-xs shadow-lg hover:bg-rose-50 transition active:scale-95"
+                title="Tambah Pintasan ke Skrin Utama Telefon"
+                className="flex items-center space-x-1 px-2.5 py-1 bg-white text-rose-600 rounded-full font-bold text-xs shadow-lg hover:bg-rose-50 transition active:scale-95 animate-pulse"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Simpan</span>
+                <Smartphone className="w-3.5 h-3.5" />
+                <span>Tambah Skrin</span>
               </button>
             )}
           </div>
