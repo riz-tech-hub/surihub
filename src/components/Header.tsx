@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
-import { Heart, Sparkles, AlertTriangle, CheckCircle2, Utensils, Download, User, LogOut } from 'lucide-react';
+import { Heart, AlertTriangle, CheckCircle2, Utensils, Download, User as UserIcon, LogOut, RefreshCw } from 'lucide-react';
 import { formatMalayDate } from '@/utils/helpers';
+import { useAuth } from '@/context/AuthContext';
+import { usePWAUpdate } from '@/context/PWAUpdateContext';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 
 interface HeaderProps {
@@ -24,10 +25,17 @@ export const Header: React.FC<HeaderProps> = ({
   todayMealSummary,
   onInstallClick,
   canInstall = false,
-  currentUser = null,
-  onOpenAuth,
-  onSignOut,
+  currentUser: propUser,
+  onOpenAuth: propOpenAuth,
+  onSignOut: propSignOut,
 }) => {
+  const { user: contextUser, openAuthModal, logout } = useAuth();
+  const { forcePurgeCacheAndReload } = usePWAUpdate();
+
+  const user = propUser !== undefined ? propUser : contextUser;
+  const handleOpenAuth = propOpenAuth || (() => openAuthModal('login'));
+  const handleSignOut = propSignOut || logout;
+
   const dateStr = formatMalayDate();
   const chorePercent = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
 
@@ -52,22 +60,40 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           <div className="flex items-center space-x-1.5">
-            {currentUser ? (
-              <div className="flex items-center space-x-1 bg-white/20 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/30 text-xs">
+            {/* Manual Hard Refresh & Purge Cache Button */}
+            <button
+              onClick={() => {
+                if (confirm('Adakah anda ingin membersihkan cache & muat segar semula versi SuriHub terkini?')) {
+                  forcePurgeCacheAndReload();
+                }
+              }}
+              title="Segar Semula & Padam Cache (Hard Refresh)"
+              className="p-1.5 bg-white/20 hover:bg-white/30 text-white rounded-full border border-white/30 backdrop-blur-md transition active:scale-95"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
+
+            {user ? (
+              <div className="flex items-center space-x-1.5 bg-white/20 backdrop-blur-md px-2.5 py-1 rounded-full border border-white/30 text-xs">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 <span className="truncate max-w-[80px] font-semibold text-rose-100">
-                  {currentUser.email?.split('@')[0]}
+                  {user.email?.split('@')[0]}
                 </span>
-                <button onClick={onSignOut} title="Log Keluar" className="p-0.5 text-white hover:text-rose-200">
+                <button
+                  onClick={handleSignOut}
+                  title="Log Keluar"
+                  className="p-0.5 text-white hover:text-rose-200 transition"
+                >
                   <LogOut className="w-3.5 h-3.5" />
                 </button>
               </div>
             ) : (
               <button
-                onClick={onOpenAuth}
+                onClick={handleOpenAuth}
                 className="flex items-center space-x-1 px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-full font-bold text-xs border border-white/30 backdrop-blur-md transition active:scale-95"
               >
-                <User className="w-3.5 h-3.5" />
-                <span>Akaun</span>
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>Log Masuk</span>
               </button>
             )}
 

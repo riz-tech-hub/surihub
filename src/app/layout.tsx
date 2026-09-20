@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
+import { AuthProvider } from '@/context/AuthContext';
+import { PWAUpdateProvider } from '@/context/PWAUpdateContext';
 
 const inter = Inter({ subsets: ['latin'] });
 
@@ -31,7 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="ms" className="h-full bg-rose-50/50 antialiased selection:bg-rose-200 selection:text-rose-900">
       <body className={`${inter.className} min-h-full flex flex-col text-gray-800 bg-rose-50/30`}>
-        {children}
+        <AuthProvider>
+          <PWAUpdateProvider>{children}</PWAUpdateProvider>
+        </AuthProvider>
       </body>
     </html>
   );

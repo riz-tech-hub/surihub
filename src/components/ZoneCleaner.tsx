@@ -3,8 +3,9 @@
 import React, { useState } from 'react';
 import { CleaningTask, ZoneType } from '@/types';
 import confetti from 'canvas-confetti';
-import { Sparkles, CheckCircle2, Plus, Trash2, RefreshCw, Check, Home, Bath, BedDouble, Utensils } from 'lucide-react';
+import { Sparkles, Plus, Trash2, RefreshCw, Check, Home, Bath, BedDouble, Utensils } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { useAuth } from '@/context/AuthContext';
 import {
   addCleaningTaskToSupabase,
   toggleCleaningTaskInSupabase,
@@ -17,81 +18,92 @@ interface ZoneCleanerProps {
   currentUser?: SupabaseUser | null;
 }
 
-export const ZoneCleaner: React.FC<ZoneCleanerProps> = ({ tasks, setTasks, currentUser }) => {
+export const ZoneCleaner: React.FC<ZoneCleanerProps> = ({ tasks, setTasks, currentUser: propUser }) => {
+  const { user: contextUser, requireAuth } = useAuth();
+  const user = propUser !== undefined ? propUser : contextUser;
+
   const [selectedZone, setSelectedZone] = useState<string>('Semua');
   const [newTitle, setNewTitle] = useState('');
   const [newZone, setNewZone] = useState<ZoneType>('Dapur');
 
   const zones: ZoneType[] = ['Dapur', 'Ruang Tamu', 'Bilik Air', 'Bilik Tidur'];
 
-  // Toggle task completed
-  const handleToggleTask = async (id: string) => {
-    const targetTask = tasks.find((t) => t.id === id);
-    const newDoneState = !targetTask?.completed;
+  // Toggle task completed - Intercepted for Guest Mode
+  const handleToggleTask = (id: string) => {
+    requireAuth(async () => {
+      const targetTask = tasks.find((t) => t.id === id);
+      const newDoneState = !targetTask?.completed;
 
-    if (currentUser) {
-      await toggleCleaningTaskInSupabase(id, newDoneState);
-    }
-
-    setTasks((prev) => {
-      const updated = prev.map((t) => (t.id === id ? { ...t, completed: newDoneState } : t));
-      const totalCount = updated.length;
-      const completedCount = updated.filter((t) => t.completed).length;
-
-      if (totalCount > 0 && completedCount === totalCount) {
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.5 },
-        });
+      if (user) {
+        await toggleCleaningTaskInSupabase(id, newDoneState);
       }
-      return updated;
-    });
+
+      setTasks((prev) => {
+        const updated = prev.map((t) => (t.id === id ? { ...t, completed: newDoneState } : t));
+        const totalCount = updated.length;
+        const completedCount = updated.filter((t) => t.completed).length;
+
+        if (totalCount > 0 && completedCount === totalCount) {
+          confetti({
+            particleCount: 120,
+            spread: 80,
+            origin: { y: 0.5 },
+          });
+        }
+        return updated;
+      });
+    }, 'Tanda Tugasan Selesai');
   };
 
-  // Add new task
-  const handleAddTask = async (e: React.FormEvent) => {
+  // Add new task - Intercepted for Guest Mode
+  const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
 
-    const taskData = {
-      title: newTitle.trim(),
-      zone: newZone,
-      completed: false,
-      estimatedMinutes: 5,
-    };
+    requireAuth(async () => {
+      const taskData = {
+        title: newTitle.trim(),
+        zone: newZone,
+        completed: false,
+        estimatedMinutes: 5,
+      };
 
-    if (currentUser) {
-      const inserted = await addCleaningTaskToSupabase(currentUser.id, taskData);
-      if (inserted) {
-        setTasks((prev) => [...prev, inserted]);
-        setNewTitle('');
-        return;
+      if (user) {
+        const inserted = await addCleaningTaskToSupabase(user.id, taskData);
+        if (inserted) {
+          setTasks((prev) => [...prev, inserted]);
+          setNewTitle('');
+          return;
+        }
       }
-    }
 
-    const newTask: CleaningTask = {
-      id: `cl-${Date.now()}`,
-      ...taskData,
-    };
+      const newTask: CleaningTask = {
+        id: `cl-${Date.now()}`,
+        ...taskData,
+      };
 
-    setTasks((prev) => [...prev, newTask]);
-    setNewTitle('');
+      setTasks((prev) => [...prev, newTask]);
+      setNewTitle('');
+    }, 'Tambah Tugasan Kemas Rumah');
   };
 
-  // Delete task
-  const handleDeleteTask = async (id: string) => {
-    if (currentUser) {
-      await deleteCleaningTaskFromSupabase(id);
-    }
-    setTasks((prev) => prev.filter((t) => t.id !== id));
+  // Delete task - Intercepted for Guest Mode
+  const handleDeleteTask = (id: string) => {
+    requireAuth(async () => {
+      if (user) {
+        await deleteCleaningTaskFromSupabase(id);
+      }
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    }, 'Padam Tugasan Kemas Rumah');
   };
 
-  // Reset all tasks to incomplete for a new day
+  // Reset all tasks to incomplete for a new day - Intercepted for Guest Mode
   const handleResetDailyTasks = () => {
-    if (confirm('Adakah anda ingin menetapkan semula semua tugasan kemas rumah untuk hari ini?')) {
-      setTasks((prev) => prev.map((t) => ({ ...t, completed: false })));
-    }
+    requireAuth(() => {
+      if (confirm('Adakah anda ingin menetapkan semula semua tugasan kemas rumah untuk hari ini?')) {
+        setTasks((prev) => prev.map((t) => ({ ...t, completed: false })));
+      }
+    }, 'Set Semula Tugasan Hari Baru');
   };
 
   // Statistics
@@ -207,7 +219,7 @@ export const ZoneCleaner: React.FC<ZoneCleanerProps> = ({ tasks, setTasks, curre
         </div>
       </form>
 
-      {/* Cleaning Tasks List grouped by Zone if 'Semua' */}
+      {/* Cleaning Tasks List */}
       <div className="space-y-3">
         {filteredTasks.map((task) => {
           const ZoneIcon = getZoneIcon(task.zone);

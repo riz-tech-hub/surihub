@@ -5,8 +5,10 @@ import { QuickTask } from '@/types';
 import { QUICK_5MIN_TASKS } from '@/data/mockData';
 import confetti from 'canvas-confetti';
 import { Zap, Play, Pause, RotateCcw, CheckCircle2, X, Sparkles, Clock, Flame } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 export const QuickTaskModal: React.FC = () => {
+  const { requireAuth } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [tasks, setTasks] = useState<QuickTask[]>(QUICK_5MIN_TASKS);
   const [selectedTask, setSelectedTask] = useState<QuickTask | null>(QUICK_5MIN_TASKS[0]);
@@ -50,12 +52,14 @@ export const QuickTaskModal: React.FC = () => {
     }
   };
 
-  // Mark task completed
+  // Mark task completed - Intercepted for Guest Mode
   const handleMarkCompleted = (taskId: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t))
-    );
-    confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+    requireAuth(() => {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t))
+      );
+      confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+    }, 'Tugas Pantas 5-Minit');
   };
 
   // Format MM:SS

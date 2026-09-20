@@ -1,5 +1,5 @@
 import { supabase, isSupabaseConfigured } from './supabaseClient';
-import { PantryItem, MealPlanDay, CleaningTask, CategoryType, ZoneType } from '@/types';
+import { PantryItem, PantryHistoryLog, MealPlanDay, CleaningTask, CategoryType, ZoneType } from '@/types';
 
 // ==========================================
 // 1. SMART PANTRY CRUD
@@ -219,4 +219,84 @@ export async function deleteCleaningTaskFromSupabase(id: string): Promise<boolea
     return false;
   }
   return true;
+}
+
+// ==========================================
+// 4. PANTRY HISTORY LOGS
+// ==========================================
+
+export async function fetchPantryHistoryFromSupabase(userId: string): Promise<PantryHistoryLog[] | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('pantry_history_logs')
+      .select('*')
+      .eq('user_id', userId)
+      .order('timestamp', { ascending: false });
+
+    if (error) {
+      console.warn('Pantry history table might not be initialized yet in Supabase:', error.message);
+      return null;
+    }
+
+    return data.map((row) => ({
+      id: row.id,
+      itemId: row.item_id,
+      itemName: row.item_name,
+      actionType: row.action_type,
+      quantityDelta: row.quantity_delta,
+      unit: row.unit,
+      timestamp: row.timestamp,
+      notes: row.notes || '',
+    }));
+  } catch (err) {
+    console.error('Error fetching pantry history from Supabase:', err);
+    return null;
+  }
+}
+
+export async function addPantryHistoryToSupabase(
+  userId: string,
+  log: Omit<PantryHistoryLog, 'id'>
+): Promise<PantryHistoryLog | null> {
+  if (!isSupabaseConfigured()) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('pantry_history_logs')
+      .insert([
+        {
+          user_id: userId,
+          item_id: log.itemId,
+          item_name: log.itemName,
+          action_type: log.actionType,
+          quantity_delta: log.quantityDelta,
+          unit: log.unit,
+          timestamp: log.timestamp,
+          notes: log.notes || '',
+        },
+      ])
+      .select()
+      .single();
+
+    if (error) {
+      console.warn('Pantry history insert error:', error.message);
+      return null;
+    }
+
+    return {
+      id: data.id,
+      itemId: data.item_id,
+      itemName: data.item_name,
+      actionType: data.action_type,
+      quantityDelta: data.quantity_delta,
+      unit: data.unit,
+      timestamp: data.timestamp,
+      notes: data.notes || '',
+    };
+  } catch (err) {
+    console.error('Error adding pantry history log to Supabase:', err);
+    return null;
+  }
 }

@@ -1,24 +1,59 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
-import { PantryItem, CategoryType, PresetIngredient } from '@/types';
+import React, { useState, useMemo, useEffect } from 'react';
+import { PantryItem, PantryHistoryLog, PantryActionType, CategoryType, PresetIngredient } from '@/types';
 import { PRESET_INGREDIENTS } from '@/data/mockData';
 import { getExpiryStatus, getDaysUntilExpiry, getFutureDateStr } from '@/utils/helpers';
-import { Plus, Search, Filter, AlertTriangle, CheckCircle2, Trash2, Edit3, Minus, Calendar, ShoppingBag, Sparkles, X } from 'lucide-react';
+import {
+  Plus,
+  Search,
+  AlertTriangle,
+  CheckCircle2,
+  Trash2,
+  Edit3,
+  Calendar,
+  ShoppingBag,
+  Sparkles,
+  X,
+  History,
+  Package,
+  Thermometer,
+  DollarSign,
+  Lightbulb,
+} from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
+import { useAuth } from '@/context/AuthContext';
+import { PantryHistoryView } from '@/components/PantryHistoryView';
+import { PantryAnalyticsCard } from '@/components/PantryAnalyticsCard';
+import { predictShelfLife, StorageLocation } from '@/utils/shelfLifeEstimator';
 import {
   addPantryItemToSupabase,
   updatePantryItemInSupabase,
   deletePantryItemFromSupabase,
+  addPantryHistoryToSupabase,
 } from '@/lib/supabaseService';
 
 interface PantryTrackerProps {
   items: PantryItem[];
   setItems: React.Dispatch<React.SetStateAction<PantryItem[]>>;
+  historyLogs?: PantryHistoryLog[];
+  setHistoryLogs?: React.Dispatch<React.SetStateAction<PantryHistoryLog[]>>;
   currentUser?: SupabaseUser | null;
 }
 
-export const PantryTracker: React.FC<PantryTrackerProps> = ({ items, setItems, currentUser }) => {
+export const PantryTracker: React.FC<PantryTrackerProps> = ({
+  items,
+  setItems,
+  historyLogs = [],
+  setHistoryLogs,
+  currentUser: propUser,
+}) => {
+  const { user: contextUser, requireAuth } = useAuth();
+  const user = propUser !== undefined ? propUser : contextUser;
+
+  // View sub-tab: 'stok' (Pantry items) vs 'sejarah' (Audit logs)
+  const [viewTab, setViewTab] = useState<'stok' | 'sejarah'>('stok');
+
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('Semua');
   const [filterExpiryAlertOnly, setFilterExpiryAlertOnly] = useState(false);
@@ -33,58 +68,134 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({ items, setItems, c
   const [formQuantity, setFormQuantity] = useState('');
   const [formExpiryDate, setFormExpiryDate] = useState(getFutureDateStr(7));
   const [formNotes, setFormNotes] = useState('');
+  const [formStorageType, setFormStorageType] = useState<StorageLocation>('Chiller');
+  const [formEstimatedValue, setFormEstimatedValue] = useState<string>('');
 
-  // Open modal for add
-  const handleOpenAdd = () => {
-    setEditingItem(null);
-    setFormName('');
-    setFormCategory('Bahan Basah');
-    setFormQuantity('1 unit');
-    setFormExpiryDate(getFutureDateStr(7));
-    setFormNotes('');
-    setIsModalOpen(true);
-  };
+  // Live shelf-life prediction computation
+  const predictionInfo = useMemo(() => {
+    return predictShelfLife(formName, formCategory, formStorageType, formQuantity);
+  }, [formName, formCategory, formStorageType, formQuantity]);
 
-  // Open modal for edit
-  const handleOpenEdit = (item: PantryItem) => {
-    setEditingItem(item);
-    setFormName(item.name);
-    setFormCategory(item.category);
-    setFormQuantity(item.quantity);
-    setFormExpiryDate(item.expiryDate);
-    setFormNotes(item.notes || '');
-    setIsModalOpen(true);
-  };
+  // Update suggested date when storage location / category / name changes if adding new
+  useEffect(() => {
+    if (!editingItem && isModalOpen) {
+      setFormExpiryDate(predictionInfo.suggestedExpiryDate);
+    }
+  }, [predictionInfo.suggestedExpiryDate, editingItem, isModalOpen]);
 
-  // Preset 1-tap add
-  const handleAddPreset = async (preset: PresetIngredient) => {
-    const itemData = {
-      name: preset.name,
-      category: preset.category,
-      quantity: preset.defaultQuantity,
-      expiryDate: getFutureDateStr(preset.defaultDaysToExpiry),
-      addedDate: new Date().toISOString().split('T')[0],
+  // Helper function to record an audit log
+  const recordLog = async (
+    itemId: string,
+    itemName: string,
+    actionType: PantryActionType,
+    quantityDelta: number,
+    unit: string,
+    notes?: string
+  ) => {
+    const logData = {
+      itemId,
+      itemName,
+      actionType,
+      quantityDelta,
+      unit,
+      timestamp: new Date().toISOString(),
+      notes: notes || '',
     };
 
-    if (currentUser) {
-      const inserted = await addPantryItemToSupabase(currentUser.id, itemData);
-      if (inserted) {
-        setItems((prev) => [inserted, ...prev]);
+    if (user) {
+      const inserted = await addPantryHistoryToSupabase(user.id, logData);
+      if (inserted && setHistoryLogs) {
+        setHistoryLogs((prev) => [inserted, ...prev]);
         return;
       }
     }
 
-    const newItem: PantryItem = {
-      id: `pantry-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      ...itemData,
+    const localLog: PantryHistoryLog = {
+      id: `log-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      ...logData,
     };
-    setItems((prev) => [newItem, ...prev]);
+
+    if (setHistoryLogs) {
+      setHistoryLogs((prev) => [localLog, ...prev]);
+    }
+  };
+
+  // Open modal for add - Intercepted for Guest Mode
+  const handleOpenAdd = () => {
+    requireAuth(() => {
+      setEditingItem(null);
+      setFormName('');
+      setFormCategory('Bahan Basah');
+      setFormQuantity('1 unit');
+      setFormStorageType('Chiller');
+      setFormEstimatedValue('10');
+      setFormNotes('');
+      setIsModalOpen(true);
+    }, 'Tambah Bahan Dapur Baru');
+  };
+
+  // Open modal for edit - Intercepted for Guest Mode
+  const handleOpenEdit = (item: PantryItem) => {
+    requireAuth(() => {
+      setEditingItem(item);
+      setFormName(item.name);
+      setFormCategory(item.category);
+      setFormQuantity(item.quantity);
+      setFormExpiryDate(item.expiryDate);
+      setFormNotes(item.notes || '');
+      setFormStorageType(item.storageType || 'Chiller');
+      setFormEstimatedValue(item.estimatedValueRM ? item.estimatedValueRM.toString() : '8');
+      setIsModalOpen(true);
+    }, 'Kemaskini Bahan Dapur');
+  };
+
+  // Preset 1-tap add - Intercepted for Guest Mode
+  const handleAddPreset = (preset: PresetIngredient) => {
+    requireAuth(async () => {
+      const storageFallback: StorageLocation =
+        preset.category === 'Bahan Basah'
+          ? preset.name.includes('Bawang') ? 'Room Temp' : 'Freezer'
+          : preset.category === 'Pes/Rempah'
+          ? 'Chiller'
+          : 'Room Temp';
+
+      const itemData: Omit<PantryItem, 'id'> = {
+        name: preset.name,
+        category: preset.category,
+        quantity: preset.defaultQuantity,
+        expiryDate: getFutureDateStr(preset.defaultDaysToExpiry),
+        addedDate: new Date().toISOString().split('T')[0],
+        storageType: storageFallback,
+        estimatedValueRM: 8,
+      };
+
+      let createdId = `pantry-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+
+      if (user) {
+        const inserted = await addPantryItemToSupabase(user.id, itemData);
+        if (inserted) {
+          createdId = inserted.id;
+          setItems((prev) => [inserted, ...prev]);
+          await recordLog(createdId, preset.name, 'ADDED', 1, preset.defaultQuantity, 'Tambah Pantas Preset');
+          return;
+        }
+      }
+
+      const newItem: PantryItem = {
+        id: createdId,
+        ...itemData,
+      };
+      setItems((prev) => [newItem, ...prev]);
+      await recordLog(createdId, preset.name, 'ADDED', 1, preset.defaultQuantity, 'Tambah Pantas Preset');
+    }, `Tambah Preset (${preset.name})`);
   };
 
   // Save item (add or edit)
   const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) return;
+
+    const parsedVal = parseFloat(formEstimatedValue) || 8;
 
     if (editingItem) {
       const updates = {
@@ -93,60 +204,99 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({ items, setItems, c
         quantity: formQuantity.trim() || '1 unit',
         expiryDate: formExpiryDate,
         notes: formNotes.trim(),
+        storageType: formStorageType,
+        estimatedValueRM: parsedVal,
       };
 
-      if (currentUser) {
+      if (user) {
         await updatePantryItemInSupabase(editingItem.id, updates);
       }
 
       setItems((prev) =>
         prev.map((item) => (item.id === editingItem.id ? { ...item, ...updates } : item))
       );
+
+      await recordLog(editingItem.id, updates.name, 'EDITED', 0, updates.quantity, updates.notes || 'Dikemaskini');
     } else {
-      const itemData = {
+      const itemData: Omit<PantryItem, 'id'> = {
         name: formName.trim(),
         category: formCategory,
         quantity: formQuantity.trim() || '1 unit',
         expiryDate: formExpiryDate,
         addedDate: new Date().toISOString().split('T')[0],
         notes: formNotes.trim(),
+        storageType: formStorageType,
+        estimatedValueRM: parsedVal,
       };
 
-      if (currentUser) {
-        const inserted = await addPantryItemToSupabase(currentUser.id, itemData);
+      let createdId = `pantry-${Date.now()}`;
+
+      if (user) {
+        const inserted = await addPantryItemToSupabase(user.id, itemData);
         if (inserted) {
+          createdId = inserted.id;
           setItems((prev) => [inserted, ...prev]);
           setIsModalOpen(false);
+          await recordLog(createdId, itemData.name, 'ADDED', 1, itemData.quantity, itemData.notes);
           return;
         }
       }
 
       const newItem: PantryItem = {
-        id: `pantry-${Date.now()}`,
+        id: createdId,
         ...itemData,
       };
       setItems((prev) => [newItem, ...prev]);
+      await recordLog(createdId, itemData.name, 'ADDED', 1, itemData.quantity, itemData.notes);
     }
 
     setIsModalOpen(false);
   };
 
-  // Delete item
-  const handleDeleteItem = async (id: string) => {
-    if (confirm('Adakah anda pasti ingin memadamkan bahan ini dari stok dapur?')) {
-      if (currentUser) {
+  // Delete item - Intercepted for Guest Mode
+  const handleDeleteItem = (id: string) => {
+    requireAuth(async () => {
+      const targetItem = items.find((i) => i.id === id);
+      if (confirm('Adakah anda pasti ingin memadamkan bahan ini dari stok dapur?')) {
+        if (user) {
+          await deletePantryItemFromSupabase(id);
+        }
+        setItems((prev) => prev.filter((item) => item.id !== id));
+        if (targetItem) {
+          const daysLeft = getDaysUntilExpiry(targetItem.expiryDate);
+          const isExpired = daysLeft < 0;
+          await recordLog(
+            id,
+            targetItem.name,
+            isExpired ? 'EXPIRED' : 'DELETED',
+            -1,
+            targetItem.quantity,
+            isExpired ? 'Bahan telah luput' : 'Dipadam dari stok'
+          );
+        }
+      }
+    }, 'Padam Bahan Dapur');
+  };
+
+  // Quick use item - Intercepted for Guest Mode
+  const handleUseItem = (id: string) => {
+    requireAuth(async () => {
+      const targetItem = items.find((i) => i.id === id);
+      if (user) {
         await deletePantryItemFromSupabase(id);
       }
       setItems((prev) => prev.filter((item) => item.id !== id));
-    }
+      if (targetItem) {
+        await recordLog(id, targetItem.name, 'CONSUMED', -1, targetItem.quantity, 'Habis diguna untuk masakan');
+      }
+    }, 'Tanda Bahan Habis Diguna');
   };
 
-  // Quick use item
-  const handleUseItem = async (id: string) => {
-    if (currentUser) {
-      await deletePantryItemFromSupabase(id);
+  // Clear history logs
+  const handleClearHistory = () => {
+    if (setHistoryLogs) {
+      setHistoryLogs([]);
     }
-    setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   // Statistics
@@ -180,187 +330,199 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({ items, setItems, c
 
   return (
     <div className="space-y-4 pb-20">
-      {/* Top Banner & Quick Stat Cards */}
-      <div className="grid grid-cols-3 gap-2">
-        <div className="bg-white rounded-2xl p-3 border border-rose-100 shadow-sm flex flex-col items-center text-center">
-          <span className="text-xs font-semibold text-gray-500">Jumlah Stok</span>
-          <span className="text-xl font-bold text-gray-800">{stats.total}</span>
-        </div>
+      {/* Sub-tab Switcher: Stok Dapur vs Sejarah / History */}
+      <div className="bg-white rounded-2xl p-1.5 border border-rose-100 shadow-sm grid grid-cols-2 gap-1 text-xs font-bold text-center">
         <button
-          onClick={() => setFilterExpiryAlertOnly(!filterExpiryAlertOnly)}
-          className={`rounded-2xl p-3 border shadow-sm flex flex-col items-center text-center transition ${
-            filterExpiryAlertOnly || stats.redCount > 0
-              ? 'bg-rose-50 border-rose-200 text-rose-700 font-bold'
-              : 'bg-white border-rose-100 text-gray-700'
+          onClick={() => setViewTab('stok')}
+          className={`py-2 rounded-xl transition flex items-center justify-center space-x-1.5 ${
+            viewTab === 'stok' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-600 hover:bg-rose-50'
           }`}
         >
-          <span className="text-xs font-semibold flex items-center gap-1">
-            <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-            Hampir Luput
-          </span>
-          <span className="text-xl font-bold text-rose-600">{stats.redCount + stats.yellowCount}</span>
+          <Package className="w-4 h-4" />
+          <span>Stok Dapur ({items.length})</span>
         </button>
-        <div className="bg-white rounded-2xl p-3 border border-rose-100 shadow-sm flex flex-col items-center text-center">
-          <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            Segar
-          </span>
-          <span className="text-xl font-bold text-emerald-700">{stats.greenCount}</span>
-        </div>
+
+        <button
+          onClick={() => setViewTab('sejarah')}
+          className={`py-2 rounded-xl transition flex items-center justify-center space-x-1.5 ${
+            viewTab === 'sejarah' ? 'bg-rose-500 text-white shadow-xs' : 'text-gray-600 hover:bg-rose-50'
+          }`}
+        >
+          <History className="w-4 h-4" />
+          <span>Sejarah Log ({historyLogs.length})</span>
+        </button>
       </div>
 
-      {/* Quick Presets Bar */}
-      <div className="bg-white rounded-2xl p-3 border border-rose-100 shadow-sm space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-xs font-bold text-gray-700 flex items-center gap-1">
-            <Sparkles className="w-4 h-4 text-rose-500" />
-            Tambah Pantas (Presets Tempatan)
-          </span>
-          <span className="text-[11px] text-gray-400">1-Tap Masuk Stok</span>
-        </div>
-        <div className="flex overflow-x-auto space-x-2 py-1 scrollbar-none">
-          {PRESET_INGREDIENTS.map((preset, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleAddPreset(preset)}
-              className="flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 rounded-xl text-xs font-medium border border-rose-200/60 transition active:scale-95"
-            >
-              <span>{preset.emoji}</span>
-              <span>{preset.name}</span>
-              <Plus className="w-3 h-3 text-rose-500" />
-            </button>
-          ))}
-        </div>
-      </div>
+      {viewTab === 'sejarah' ? (
+        <PantryHistoryView logs={historyLogs} onClearLogs={handleClearHistory} />
+      ) : (
+        <>
+          {/* Visual Analytics & Smart Estimator Dashboard Card */}
+          <PantryAnalyticsCard items={items} historyLogs={historyLogs} onOpenAddModal={handleOpenAdd} />
 
-      {/* Search and Category Filter */}
-      <div className="space-y-2">
-        <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            placeholder="Cari bahan dapur (e.g. Ayam, Bawang, Santan)..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2.5 bg-white border border-rose-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-sm text-gray-800"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="absolute right-3 top-3 text-gray-400 hover:text-gray-600">
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Category Pills */}
-        <div className="flex space-x-1.5 overflow-x-auto py-1 scrollbar-none">
-          {['Semua', 'Bahan Basah', 'Bahan Kering', 'Pes/Rempah'].map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 transition ${
-                selectedCategory === cat
-                  ? 'bg-rose-500 text-white shadow-sm'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:border-rose-300'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Add New Item Button */}
-      <button
-        onClick={handleOpenAdd}
-        className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl font-bold text-sm shadow-md flex items-center justify-center space-x-2 transition active:scale-98"
-      >
-        <Plus className="w-5 h-5" />
-        <span>Tambah Bahan Baru ke Dapur</span>
-      </button>
-
-      {/* Item List */}
-      <div className="space-y-3">
-        {filteredItems.length === 0 ? (
-          <div className="bg-white rounded-2xl p-8 text-center border border-dashed border-rose-200 text-gray-500 space-y-2">
-            <ShoppingBag className="w-10 h-10 text-rose-300 mx-auto" />
-            <p className="font-semibold text-gray-700">Tiada bahan dijumpai</p>
-            <p className="text-xs text-gray-400">Gunakan butang Tambah Pantas di atas atau buat rekod bahan baru.</p>
+          {/* Quick Presets Bar */}
+          <div className="bg-white rounded-2xl p-3 border border-rose-100 shadow-sm space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-700 flex items-center gap-1">
+                <Sparkles className="w-4 h-4 text-rose-500" />
+                Tambah Pantas (Presets Tempatan)
+              </span>
+              <span className="text-[11px] text-gray-400">1-Tap Masuk Stok</span>
+            </div>
+            <div className="flex overflow-x-auto space-x-2 py-1 scrollbar-none">
+              {PRESET_INGREDIENTS.map((preset, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => handleAddPreset(preset)}
+                  className="flex-shrink-0 flex items-center space-x-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-800 rounded-xl text-xs font-medium border border-rose-200/60 transition active:scale-95"
+                >
+                  <span>{preset.emoji}</span>
+                  <span>{preset.name}</span>
+                  <Plus className="w-3 h-3 text-rose-500" />
+                </button>
+              ))}
+            </div>
           </div>
-        ) : (
-          filteredItems.map((item) => {
-            const expiryInfo = getExpiryStatus(item.expiryDate);
 
-            return (
-              <div
-                key={item.id}
-                className="bg-white rounded-2xl p-3.5 border border-rose-100 shadow-sm hover:shadow-md transition space-y-2.5"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-0.5">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold text-gray-800 text-base">{item.name}</span>
-                      <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium border border-gray-200">
-                        {item.category}
-                      </span>
-                    </div>
-                    <div className="text-xs text-gray-500 flex items-center gap-2">
-                      <span className="font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
-                        Kuantiti: {item.quantity}
-                      </span>
-                      {item.notes && <span className="italic text-gray-400">"{item.notes}"</span>}
-                    </div>
-                  </div>
+          {/* Search and Category Filter */}
+          <div className="space-y-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+              <input
+                type="text"
+                placeholder="Cari bahan dapur (e.g. Ayam, Bawang, Santan)..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 bg-white border border-rose-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 shadow-sm text-gray-800"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="absolute right-3 top-3 text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
 
-                  {/* Expiry Badge */}
-                  <span className={`text-xs px-2.5 py-1 rounded-xl border flex items-center gap-1 ${expiryInfo.badgeBg}`}>
-                    <span className={`w-2 h-2 rounded-full ${expiryInfo.dotColor}`} />
-                    {expiryInfo.label}
-                  </span>
-                </div>
+            {/* Category Pills */}
+            <div className="flex space-x-1.5 overflow-x-auto py-1 scrollbar-none">
+              {['Semua', 'Bahan Basah', 'Bahan Kering', 'Pes/Rempah'].map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold flex-shrink-0 transition ${
+                    selectedCategory === cat
+                      ? 'bg-rose-500 text-white shadow-sm'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:border-rose-300'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
 
-                {/* Bottom Row Actions */}
-                <div className="pt-2 border-t border-rose-50 flex items-center justify-between">
-                  <div className="text-[11px] text-gray-400 flex items-center gap-1">
-                    <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                    <span>Tarikh Luput: {item.expiryDate}</span>
-                  </div>
+          {/* Add New Item Button */}
+          <button
+            onClick={handleOpenAdd}
+            className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl font-bold text-sm shadow-md flex items-center justify-center space-x-2 transition active:scale-98"
+          >
+            <Plus className="w-5 h-5" />
+            <span>Tambah Bahan Baru ke Dapur</span>
+          </button>
 
-                  <div className="flex items-center space-x-1.5">
-                    <button
-                      onClick={() => handleUseItem(item.id)}
-                      className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition"
-                      title="Telah Habis Diguna"
-                    >
-                      ✓ Habis Guna
-                    </button>
-
-                    <button
-                      onClick={() => handleOpenEdit(item)}
-                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                      title="Edit Item"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={() => handleDeleteItem(item.id)}
-                      className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
-                      title="Padam Item"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+          {/* Item List */}
+          <div className="space-y-3">
+            {filteredItems.length === 0 ? (
+              <div className="bg-white rounded-2xl p-8 text-center border border-dashed border-rose-200 text-gray-500 space-y-2">
+                <ShoppingBag className="w-10 h-10 text-rose-300 mx-auto" />
+                <p className="font-semibold text-gray-700">Tiada bahan dijumpai</p>
+                <p className="text-xs text-gray-400">Gunakan butang Tambah Pantas di atas atau buat rekod bahan baru.</p>
               </div>
-            );
-          })
-        )}
-      </div>
+            ) : (
+              filteredItems.map((item) => {
+                const expiryInfo = getExpiryStatus(item.expiryDate);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="bg-white rounded-2xl p-3.5 border border-rose-100 shadow-sm hover:shadow-md transition space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-0.5">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold text-gray-800 text-base">{item.name}</span>
+                          <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full font-medium border border-gray-200">
+                            {item.category}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 flex items-center gap-2">
+                          <span className="font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
+                            Kuantiti: {item.quantity}
+                          </span>
+                          {item.storageType && (
+                            <span className="text-[10px] px-2 py-0.5 bg-gray-50 text-gray-600 rounded-md border border-gray-200">
+                              📍 {item.storageType}
+                            </span>
+                          )}
+                          {item.estimatedValueRM && (
+                            <span className="text-[10px] px-1.5 py-0.5 bg-emerald-50 text-emerald-700 font-bold rounded-md border border-emerald-200">
+                              RM {item.estimatedValueRM.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expiry Badge */}
+                      <span className={`text-xs px-2.5 py-1 rounded-xl border flex items-center gap-1 ${expiryInfo.badgeBg}`}>
+                        <span className={`w-2 h-2 rounded-full ${expiryInfo.dotColor}`} />
+                        {expiryInfo.label}
+                      </span>
+                    </div>
+
+                    {/* Bottom Row Actions */}
+                    <div className="pt-2 border-t border-rose-50 flex items-center justify-between">
+                      <div className="text-[11px] text-gray-400 flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Tarikh Luput: {item.expiryDate}</span>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          onClick={() => handleUseItem(item.id)}
+                          className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold rounded-xl border border-emerald-200 transition"
+                          title="Telah Habis Diguna"
+                        >
+                          ✓ Habis Guna
+                        </button>
+
+                        <button
+                          onClick={() => handleOpenEdit(item)}
+                          className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+                          title="Edit Item"
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          onClick={() => handleDeleteItem(item.id)}
+                          className="p-1.5 text-gray-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition"
+                          title="Padam Item"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
 
       {/* Add / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-5 w-full max-w-md shadow-2xl border border-rose-100 space-y-4 animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-3xl p-5 w-full max-w-md shadow-2xl border border-rose-100 space-y-4 animate-in fade-in zoom-in duration-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-rose-100 pb-3">
               <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
                 <ShoppingBag className="w-5 h-5 text-rose-500" />
@@ -414,15 +576,64 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({ items, setItems, c
                 </div>
               </div>
 
+              {/* Storage Location Selector */}
               <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">Tarikh Luput (Expiry Date)</label>
-                <input
-                  type="date"
-                  required
-                  value={formExpiryDate}
-                  onChange={(e) => setFormExpiryDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 border border-rose-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 text-gray-800 bg-white"
-                />
+                <label className="block text-xs font-bold text-gray-700 mb-1 flex items-center justify-between">
+                  <span>Lokasi Penyimpanan (Storage)</span>
+                  <Thermometer className="w-3.5 h-3.5 text-rose-500" />
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-rose-50/50 p-1 rounded-2xl text-xs font-bold text-center">
+                  {(['Room Temp', 'Chiller', 'Freezer'] as StorageLocation[]).map((loc) => (
+                    <button
+                      key={loc}
+                      type="button"
+                      onClick={() => setFormStorageType(loc)}
+                      className={`py-2 rounded-xl transition ${
+                        formStorageType === loc
+                          ? 'bg-rose-500 text-white shadow-xs'
+                          : 'text-gray-600 hover:bg-rose-100/50'
+                      }`}
+                    >
+                      {loc === 'Room Temp' ? 'Suhu Bilik' : loc === 'Chiller' ? 'Chiller' : 'Freezer'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Dynamic Smart Estimator Predictive Tooltip Card */}
+              {formName.trim() && (
+                <div className="bg-amber-50/90 border border-amber-200/80 rounded-2xl p-3 text-xs text-amber-900 space-y-1">
+                  <div className="flex items-center space-x-1.5 font-bold text-amber-800">
+                    <Lightbulb className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <span>Ramalan Tempoh Segar (AI Estimator)</span>
+                  </div>
+                  <p className="leading-relaxed text-[11px]">{predictionInfo.tooltipMessage}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Tarikh Luput</label>
+                  <input
+                    type="date"
+                    required
+                    value={formExpiryDate}
+                    onChange={(e) => setFormExpiryDate(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-rose-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-400 text-gray-800 bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Anggaran Nilai (RM)</label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    placeholder="e.g. 15.00"
+                    value={formEstimatedValue}
+                    onChange={(e) => setFormEstimatedValue(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-rose-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-rose-400 text-gray-800"
+                  />
+                </div>
               </div>
 
               <div>

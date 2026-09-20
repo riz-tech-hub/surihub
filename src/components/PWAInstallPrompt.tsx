@@ -17,9 +17,9 @@ export const PWAInstallPrompt: React.FC<PWAInstallPromptProps> = ({ onInstallRea
   const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    // Register Service Worker
+    // Register Service Worker with updateViaCache: 'none'
     if ('serviceWorker' in navigator && process.env.NODE_ENV === 'production') {
-      navigator.serviceWorker.register('/sw.js').catch((err) => {
+      navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).catch((err) => {
         console.error('Service worker registration failed:', err);
       });
     }

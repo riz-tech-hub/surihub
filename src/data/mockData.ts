@@ -1,4 +1,4 @@
-import { PantryItem, PresetIngredient, Recipe, MealPlanDay, BatchPrepItem, CleaningTask, QuickTask } from '@/types';
+import { PantryItem, PantryHistoryLog, PresetIngredient, Recipe, MealPlanDay, BatchPrepItem, CleaningTask, QuickTask } from '@/types';
 import { getFutureDateStr } from '@/utils/helpers';
 
 export const PRESET_INGREDIENTS: PresetIngredient[] = [
@@ -30,6 +30,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     expiryDate: getFutureDateStr(1), // Red: 1 day left
     addedDate: getFutureDateStr(-2),
     notes: 'Dipotong 12, simpan dalam freezer',
+    storageType: 'Freezer',
+    estimatedValueRM: 18,
   },
   {
     id: 'pantry-2',
@@ -39,6 +41,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     expiryDate: getFutureDateStr(2), // Red: 2 days left
     addedDate: getFutureDateStr(-1),
     notes: 'Untuk masak sambal tumis',
+    storageType: 'Freezer',
+    estimatedValueRM: 25,
   },
   {
     id: 'pantry-3',
@@ -48,6 +52,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     expiryDate: getFutureDateStr(4), // Yellow: 4 days left
     addedDate: getFutureDateStr(-3),
     notes: 'Telah direbus & diblend',
+    storageType: 'Chiller',
+    estimatedValueRM: 5,
   },
   {
     id: 'pantry-4',
@@ -56,6 +62,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '2 kotak',
     expiryDate: getFutureDateStr(5), // Yellow: 5 days left
     addedDate: getFutureDateStr(-5),
+    storageType: 'Chiller',
+    estimatedValueRM: 7,
   },
   {
     id: 'pantry-5',
@@ -64,6 +72,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '1 kg',
     expiryDate: getFutureDateStr(10), // Green
     addedDate: getFutureDateStr(-1),
+    storageType: 'Room Temp',
+    estimatedValueRM: 8,
   },
   {
     id: 'pantry-6',
@@ -72,6 +82,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '500g',
     expiryDate: getFutureDateStr(14), // Green
     addedDate: getFutureDateStr(-1),
+    storageType: 'Room Temp',
+    estimatedValueRM: 5,
   },
   {
     id: 'pantry-7',
@@ -80,6 +92,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '2 peket',
     expiryDate: getFutureDateStr(60), // Green
     addedDate: getFutureDateStr(-10),
+    storageType: 'Room Temp',
+    estimatedValueRM: 4,
   },
   {
     id: 'pantry-8',
@@ -88,6 +102,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '10 biji',
     expiryDate: getFutureDateStr(12), // Green
     addedDate: getFutureDateStr(-2),
+    storageType: 'Chiller',
+    estimatedValueRM: 7,
   },
   {
     id: 'pantry-9',
@@ -96,6 +112,8 @@ export const INITIAL_PANTRY_ITEMS: PantryItem[] = [
     quantity: '1 botol',
     expiryDate: getFutureDateStr(90), // Green
     addedDate: getFutureDateStr(-15),
+    storageType: 'Room Temp',
+    estimatedValueRM: 6,
   },
 ];
 
@@ -258,4 +276,57 @@ export const QUICK_5MIN_TASKS: QuickTask[] = [
   { id: 'qt-6', title: 'Lipat 1 Bakul Baju Kering', minutes: 5, iconEmoji: '🧺', completed: false },
   { id: 'qt-7', title: 'Lap Skrin TV & Cermin Muka', minutes: 3, iconEmoji: '🪞', completed: false },
   { id: 'qt-8', title: 'Susun Kasut Depan Pintu Masuk', minutes: 2, iconEmoji: '👟', completed: false },
+];
+
+export const INITIAL_PANTRY_HISTORY: PantryHistoryLog[] = [
+  {
+    id: 'log-1',
+    itemId: 'pantry-1',
+    itemName: 'Ayam Segar',
+    actionType: 'ADDED',
+    quantityDelta: 1,
+    unit: 'ekor',
+    timestamp: new Date(Date.now() - 3600 * 1000 * 4).toISOString(), // 4 hours ago
+    notes: 'Dibeli di Mydin Subang',
+  },
+  {
+    id: 'log-2',
+    itemId: 'pantry-2',
+    itemName: 'Udang Harimau',
+    actionType: 'ADDED',
+    quantityDelta: 500,
+    unit: 'g',
+    timestamp: new Date(Date.now() - 3600 * 1000 * 24).toISOString(), // 1 day ago
+    notes: 'Stok sejuk beku',
+  },
+  {
+    id: 'log-3',
+    itemId: 'pantry-old-1',
+    itemName: 'Ikan Kembung',
+    actionType: 'CONSUMED',
+    quantityDelta: -1,
+    unit: 'kg',
+    timestamp: new Date(Date.now() - 3600 * 1000 * 30).toISOString(), // 1.2 days ago
+    notes: 'Dimasak untuk lunch (Ikan Bakar Sambal)',
+  },
+  {
+    id: 'log-4',
+    itemId: 'pantry-old-2',
+    itemName: 'Santan Kelapa',
+    actionType: 'EXPIRED',
+    quantityDelta: -1,
+    unit: 'kotak',
+    timestamp: new Date(Date.now() - 3600 * 1000 * 48).toISOString(), // 2 days ago
+    notes: 'Tarikh luput terlepas 1 hari',
+  },
+  {
+    id: 'log-5',
+    itemId: 'pantry-3',
+    itemName: 'Cili Kisar Kak Nab',
+    actionType: 'EDITED',
+    quantityDelta: 0,
+    unit: 'bekas',
+    timestamp: new Date(Date.now() - 3600 * 1000 * 52).toISOString(),
+    notes: 'Kemaskini tarikh luput & nota',
+  },
 ];

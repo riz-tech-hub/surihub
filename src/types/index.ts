@@ -8,6 +8,21 @@ export interface PantryItem {
   expiryDate: string; // YYYY-MM-DD
   addedDate: string;
   notes?: string;
+  storageType?: 'Room Temp' | 'Chiller' | 'Freezer';
+  estimatedValueRM?: number;
+}
+
+export type PantryActionType = 'ADDED' | 'CONSUMED' | 'EXPIRED' | 'EDITED' | 'DELETED';
+
+export interface PantryHistoryLog {
+  id: string;
+  itemId: string;
+  itemName: string;
+  actionType: PantryActionType;
+  quantityDelta: number;
+  unit: string;
+  timestamp: string; // ISO date string
+  notes?: string;
 }
 
 export interface PresetIngredient {

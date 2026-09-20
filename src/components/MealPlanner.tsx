@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { saveMealPlanDayToSupabase } from '@/lib/supabaseService';
+import { useAuth } from '@/context/AuthContext';
 
 interface MealPlannerProps {
   pantryItems: PantryItem[];
@@ -40,7 +41,7 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
   batchPrep,
   setBatchPrep,
   setPantryItems,
-  currentUser,
+  currentUser: propUser,
 }) => {
   const [subTab, setSubTab] = useState<'weekly' | 'recipes' | 'batch'>('weekly');
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('Isnin');
@@ -67,12 +68,17 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
     makanMalam: '',
   };
 
-  // Open edit day modal
+  const { user: contextUser, requireAuth } = useAuth();
+  const currentUser = propUser !== undefined ? propUser : contextUser;
+
+  // Open edit day modal - Intercepted for Guest Mode
   const handleOpenEditDay = () => {
-    setEditSarapan(currentDayPlan.sarapan);
-    setEditTengahHari(currentDayPlan.makanTengahHari);
-    setEditMalam(currentDayPlan.makanMalam);
-    setIsEditDayModalOpen(true);
+    requireAuth(() => {
+      setEditSarapan(currentDayPlan.sarapan);
+      setEditTengahHari(currentDayPlan.makanTengahHari);
+      setEditMalam(currentDayPlan.makanMalam);
+      setIsEditDayModalOpen(true);
+    }, 'Kemaskini Menu Mingguan');
   };
 
   // Save day meal plan
@@ -95,53 +101,62 @@ export const MealPlanner: React.FC<MealPlannerProps> = ({
     setIsEditDayModalOpen(false);
   };
 
-  // Quick assign recipe to selected day's meal
-  const handleAssignRecipeToDay = async (recipeName: string, mealType: 'sarapan' | 'tengahHari' | 'malam') => {
-    const updatedPlan: MealPlanDay = {
-      day: selectedDay,
-      sarapan: mealType === 'sarapan' ? recipeName : currentDayPlan.sarapan,
-      makanTengahHari: mealType === 'tengahHari' ? recipeName : currentDayPlan.makanTengahHari,
-      makanMalam: mealType === 'malam' ? recipeName : currentDayPlan.makanMalam,
-    };
+  // Quick assign recipe to selected day's meal - Intercepted for Guest Mode
+  const handleAssignRecipeToDay = (recipeName: string, mealType: 'sarapan' | 'tengahHari' | 'malam') => {
+    requireAuth(async () => {
+      const updatedPlan: MealPlanDay = {
+        day: selectedDay,
+        sarapan: mealType === 'sarapan' ? recipeName : currentDayPlan.sarapan,
+        makanTengahHari: mealType === 'tengahHari' ? recipeName : currentDayPlan.makanTengahHari,
+        makanMalam: mealType === 'malam' ? recipeName : currentDayPlan.makanMalam,
+      };
 
-    if (currentUser) {
-      await saveMealPlanDayToSupabase(currentUser.id, updatedPlan);
-    }
-
-    setMealPlan((prev) =>
-      prev.map((m) => (m.day === selectedDay ? updatedPlan : m))
-    );
-  };
-
-  // Batch prep toggle check
-  const handleToggleBatchItem = (id: string) => {
-    setBatchPrep((prev) => {
-      const updated = prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item));
-      const allDone = updated.every((item) => item.completed);
-      if (allDone && updated.length > 0) {
-        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+      if (currentUser) {
+        await saveMealPlanDayToSupabase(currentUser.id, updatedPlan);
       }
-      return updated;
-    });
+
+      setMealPlan((prev) =>
+        prev.map((m) => (m.day === selectedDay ? updatedPlan : m))
+      );
+    }, `Tetapkan Resipi (${recipeName})`);
   };
 
-  // Add custom batch prep item
+  // Batch prep toggle check - Intercepted for Guest Mode
+  const handleToggleBatchItem = (id: string) => {
+    requireAuth(() => {
+      setBatchPrep((prev) => {
+        const updated = prev.map((item) => (item.id === id ? { ...item, completed: !item.completed } : item));
+        const allDone = updated.every((item) => item.completed);
+        if (allDone && updated.length > 0) {
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        }
+        return updated;
+      });
+    }, 'Tanda Persediaan Bahan Selesai');
+  };
+
+  // Add custom batch prep item - Intercepted for Guest Mode
   const handleAddBatchTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBatchTask.trim()) return;
-    const newItem: BatchPrepItem = {
-      id: `bp-${Date.now()}`,
-      task: newBatchTask.trim(),
-      category: newBatchCategory,
-      completed: false,
-    };
-    setBatchPrep((prev) => [...prev, newItem]);
-    setNewBatchTask('');
+
+    requireAuth(() => {
+      const newItem: BatchPrepItem = {
+        id: `bp-${Date.now()}`,
+        task: newBatchTask.trim(),
+        category: newBatchCategory,
+        completed: false,
+      };
+      setBatchPrep((prev) => [...prev, newItem]);
+      setNewBatchTask('');
+    }, 'Tambah Tugasan Persediaan Bahan');
   };
 
-  // Delete batch task
+  // Delete batch task - Intercepted for Guest Mode
   const handleDeleteBatchTask = (id: string) => {
-    setBatchPrep((prev) => prev.filter((item) => item.id !== id));
+    requireAuth(() => {
+      setBatchPrep((prev) => prev.filter((item) => item.id !== id));
+    }, 'Padam Tugasan Persediaan Bahan');
   };
 
   // Calculate matching ingredients for a recipe

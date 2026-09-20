@@ -2,14 +2,18 @@
 
 import React, { useState, useEffect } from 'react';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { PantryItem, MealPlanDay, BatchPrepItem, CleaningTask } from '@/types';
+import { useAuth } from '@/context/AuthContext';
+import { PantryItem, PantryHistoryLog, MealPlanDay, BatchPrepItem, CleaningTask } from '@/types';
 import {
   INITIAL_PANTRY_ITEMS,
+  INITIAL_PANTRY_HISTORY,
   INITIAL_MEAL_PLAN,
   INITIAL_BATCH_PREP,
   INITIAL_CLEANING_TASKS,
 } from '@/data/mockData';
 import { Header } from '@/components/Header';
+import { GuestWarningBanner } from '@/components/GuestWarningBanner';
+import { GuestTeaserDrawer } from '@/components/GuestTeaserDrawer';
 import { Navbar, TabType } from '@/components/Navbar';
 import { PantryTracker } from '@/components/PantryTracker';
 import { MealPlanner } from '@/components/MealPlanner';
@@ -17,26 +21,30 @@ import { ZoneCleaner } from '@/components/ZoneCleaner';
 import { QuickTaskModal } from '@/components/QuickTaskModal';
 import { PWAInstallPrompt } from '@/components/PWAInstallPrompt';
 import { AuthModal } from '@/components/AuthModal';
-import { supabase, isSupabaseConfigured } from '@/lib/supabaseClient';
 import {
   fetchPantryItemsFromSupabase,
   fetchMealPlansFromSupabase,
   fetchCleaningTasksFromSupabase,
+  fetchPantryHistoryFromSupabase,
 } from '@/lib/supabaseService';
 import { getDaysUntilExpiry } from '@/utils/helpers';
-import { RefreshCw, Database } from 'lucide-react';
-import { User } from '@supabase/supabase-js';
+import { RefreshCw, Database, CloudCheck } from 'lucide-react';
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<TabType>('dapur');
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [syncingCloud, setSyncingCloud] = useState(false);
+
+  const { user, openAuthModal, logout } = useAuth();
 
   // Persistent storage state (Local / Offline fallback)
   const [pantryItems, setPantryItems, isPantryLoaded] = useLocalStorage<PantryItem[]>(
     'surihub_pantry_items',
     INITIAL_PANTRY_ITEMS
+  );
+
+  const [pantryHistoryLogs, setPantryHistoryLogs, isHistoryLoaded] = useLocalStorage<PantryHistoryLog[]>(
+    'surihub_pantry_history',
+    INITIAL_PANTRY_HISTORY
   );
 
   const [mealPlan, setMealPlan, isMealLoaded] = useLocalStorage<MealPlanDay[]>(
@@ -57,39 +65,25 @@ export default function Home() {
   const [canInstallPWA, setCanInstallPWA] = useState(false);
   const [pwaPromptFn, setPwaPromptFn] = useState<(() => void) | null>(null);
 
-  // 1. Supabase Auth Listener & Initial Cloud Sync
+  // Sync with Supabase on user authentication
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
+    if (user) {
+      syncFromSupabase(user.id);
+    }
+  }, [user]);
 
-    // Check existing session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setCurrentUser(session.user);
-        syncFromSupabase(session.user.id);
-      }
-    });
-
-    // Listen to Auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      const user = session?.user || null;
-      setCurrentUser(user);
-      if (user) {
-        syncFromSupabase(user.id);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  // Fetch initial data from Supabase
+  // Fetch data from Supabase once logged in
   const syncFromSupabase = async (userId: string) => {
     setSyncingCloud(true);
     try {
       const cloudPantry = await fetchPantryItemsFromSupabase(userId);
       if (cloudPantry && cloudPantry.length > 0) {
         setPantryItems(cloudPantry);
+      }
+
+      const cloudHistory = await fetchPantryHistoryFromSupabase(userId);
+      if (cloudHistory && cloudHistory.length > 0) {
+        setPantryHistoryLogs(cloudHistory);
       }
 
       const cloudMeals = await fetchMealPlansFromSupabase(userId);
@@ -113,14 +107,7 @@ export default function Home() {
     }
   };
 
-  const handleSignOut = async () => {
-    if (isSupabaseConfigured()) {
-      await supabase.auth.signOut();
-    }
-    setCurrentUser(null);
-  };
-
-  // Near expiry count calculation (<= 2 days or <= 5 days)
+  // Near expiry count calculation (<= 5 days)
   const nearExpiryCount = pantryItems.filter((item) => getDaysUntilExpiry(item.expiryDate) <= 5).length;
 
   // Today's lunch meal summary for header widget
@@ -133,13 +120,14 @@ export default function Home() {
   const handleResetAllData = () => {
     if (confirm('Adakah anda pasti ingin menetapkan semula semua data app ke sampel asal (Default Mock Data)?')) {
       setPantryItems(INITIAL_PANTRY_ITEMS);
+      setPantryHistoryLogs(INITIAL_PANTRY_HISTORY);
       setMealPlan(INITIAL_MEAL_PLAN);
       setBatchPrep(INITIAL_BATCH_PREP);
       setCleaningTasks(INITIAL_CLEANING_TASKS);
     }
   };
 
-  const isDataLoading = !isPantryLoaded || !isMealLoaded || !isBatchLoaded || !isCleaningLoaded;
+  const isDataLoading = !isPantryLoaded || !isHistoryLoaded || !isMealLoaded || !isBatchLoaded || !isCleaningLoaded;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-rose-50/50 via-pink-50/20 to-white text-gray-800 flex flex-col font-sans">
@@ -151,10 +139,13 @@ export default function Home() {
         todayMealSummary={todayLunchMeal}
         canInstall={canInstallPWA}
         onInstallClick={() => pwaPromptFn && pwaPromptFn()}
-        currentUser={currentUser}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
-        onSignOut={handleSignOut}
+        currentUser={user}
+        onOpenAuth={() => openAuthModal('login')}
+        onSignOut={logout}
       />
+
+      {/* Sticky Guest Warning Banner right under Header */}
+      <GuestWarningBanner />
 
       {/* PWA Installation Banner */}
       <PWAInstallPrompt
@@ -166,26 +157,27 @@ export default function Home() {
 
       {/* Cloud Sync Status Indicator Bar */}
       <div className="max-w-md mx-auto w-full px-4 pt-2">
-        <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2 border border-rose-100 shadow-xs flex items-center justify-between text-xs">
+        <div className="bg-white/80 backdrop-blur-xs rounded-xl p-2.5 border border-rose-100 shadow-xs flex items-center justify-between text-xs">
           <div className="flex items-center space-x-1.5 text-gray-600">
             <Database className="w-3.5 h-3.5 text-rose-500" />
             <span className="font-semibold">
-              {currentUser ? `Disambung: ${currentUser.email}` : 'Mod Luar Talian (Local Storage)'}
+              {user ? `Disambung: ${user.email}` : 'Mod Tetamu (Local Storage)'}
             </span>
           </div>
 
           {syncingCloud ? (
             <span className="text-[10px] text-rose-500 animate-pulse font-bold">Menyegar Cloud...</span>
-          ) : currentUser ? (
-            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              ✓ Disimpan di Supabase
+          ) : user ? (
+            <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+              <CloudCheck className="w-3 h-3" />
+              Cloud Sync Active
             </span>
           ) : (
             <button
-              onClick={() => setIsAuthModalOpen(true)}
-              className="text-[10px] text-rose-600 font-bold bg-rose-50 hover:bg-rose-100 px-2 py-0.5 rounded-full border border-rose-200 transition"
+              onClick={() => openAuthModal('login')}
+              className="text-[10px] text-rose-600 font-bold bg-rose-50 hover:bg-rose-100 px-2.5 py-0.5 rounded-full border border-rose-200 transition"
             >
-              Log Masuk Cloud
+              Sign In Now
             </button>
           )}
         </div>
@@ -204,7 +196,9 @@ export default function Home() {
               <PantryTracker
                 items={pantryItems}
                 setItems={setPantryItems}
-                currentUser={currentUser}
+                historyLogs={pantryHistoryLogs}
+                setHistoryLogs={setPantryHistoryLogs}
+                currentUser={user}
               />
             )}
 
@@ -216,7 +210,7 @@ export default function Home() {
                 batchPrep={batchPrep}
                 setBatchPrep={setBatchPrep}
                 setPantryItems={setPantryItems}
-                currentUser={currentUser}
+                currentUser={user}
               />
             )}
 
@@ -224,7 +218,7 @@ export default function Home() {
               <ZoneCleaner
                 tasks={cleaningTasks}
                 setTasks={setCleaningTasks}
-                currentUser={currentUser}
+                currentUser={user}
               />
             )}
 
@@ -238,7 +232,7 @@ export default function Home() {
                 Set Semula Data Contoh (Reset Demo Data)
               </button>
               <p className="text-[10px] text-gray-400">
-                SuriHub v1.0 • Integration Supabase & PWA Ready 💕
+                SuriHub v1.0 • Pantry Audit Log & Cloud Backup 💕
               </p>
             </div>
           </>
@@ -248,14 +242,9 @@ export default function Home() {
       {/* Floating 5-Min Task FAB & Modal */}
       <QuickTaskModal />
 
-      {/* Auth Modal */}
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        onAuthSuccess={() => {
-          if (currentUser) syncFromSupabase(currentUser.id);
-        }}
-      />
+      {/* Auth Modal & Guest Teaser Drawer */}
+      <AuthModal />
+      <GuestTeaserDrawer />
 
       {/* Bottom Navigation */}
       <Navbar
