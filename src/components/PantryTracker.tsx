@@ -20,11 +20,13 @@ import {
   Thermometer,
   DollarSign,
   Lightbulb,
+  Printer,
 } from 'lucide-react';
 import { User as SupabaseUser } from '@supabase/supabase-js';
 import { useAuth } from '@/context/AuthContext';
 import { PantryHistoryView } from '@/components/PantryHistoryView';
 import { PantryAnalyticsCard } from '@/components/PantryAnalyticsCard';
+import { PantryPrintModal } from '@/components/PantryPrintModal';
 import { predictShelfLife, StorageLocation } from '@/utils/shelfLifeEstimator';
 import {
   addPantryItemToSupabase,
@@ -60,6 +62,7 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<PantryItem | null>(null);
 
   // Form inputs
@@ -420,14 +423,24 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({
             </div>
           </div>
 
-          {/* Add New Item Button */}
-          <button
-            onClick={handleOpenAdd}
-            className="w-full py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl font-bold text-sm shadow-md flex items-center justify-center space-x-2 transition active:scale-98"
-          >
-            <Plus className="w-5 h-5" />
-            <span>Tambah Bahan Baru ke Dapur</span>
-          </button>
+          {/* Add New Item & Print Restock List Buttons */}
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={handleOpenAdd}
+              className="col-span-2 py-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600 text-white rounded-2xl font-bold text-xs sm:text-sm shadow-md flex items-center justify-center space-x-1.5 transition active:scale-98"
+            >
+              <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span>Tambah Bahan Baru</span>
+            </button>
+            <button
+              onClick={() => setIsPrintModalOpen(true)}
+              className="py-3 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 rounded-2xl font-bold text-xs sm:text-sm shadow-xs flex items-center justify-center space-x-1.5 transition active:scale-98"
+              title="Cetak atau kongsi senarai barang yang perlu dibeli kepada keluarga"
+            >
+              <Printer className="w-4 h-4 text-rose-500 flex-shrink-0" />
+              <span>Cetak Restok</span>
+            </button>
+          </div>
 
           {/* Item List */}
           <div className="space-y-3">
@@ -666,6 +679,13 @@ export const PantryTracker: React.FC<PantryTrackerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Pantry Restock Print & Family Share Modal */}
+      <PantryPrintModal
+        isOpen={isPrintModalOpen}
+        onClose={() => setIsPrintModalOpen(false)}
+        items={items}
+      />
     </div>
   );
 };
