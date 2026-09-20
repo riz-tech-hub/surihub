@@ -82,7 +82,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthSuc
       if (error) throw error;
     } catch (err: any) {
       console.error('Google auth error:', err);
-      setErrorMsg(err.message || 'Ralat log masuk Google.');
+      if (err.message?.includes('provider is not enabled') || err.message?.includes('validation_failed')) {
+        setErrorMsg('Google Sign-In belum diaktifkan di Supabase Dashboard. Sila aktifkan Google Provider dalam Supabase (Authentication ➔ Providers ➔ Google) atau gunakan pendaftaran E-mel.');
+      } else {
+        setErrorMsg(err.message || 'Ralat log masuk Google.');
+      }
       setLoading(false);
     }
   };
